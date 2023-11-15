@@ -54,7 +54,6 @@ class Packets:
     def requestpacket(self, seq):
         "Construct AVCTP request header"
         b1=((seq & 0x0f) << 4) | 0x00 # Single packet, request
-        print(b1)
         return struct.pack(">BH",b1,AVRCP_UUID) # AVRCP PID
 
     def respondevent(self, seq,payload):
@@ -72,9 +71,9 @@ class Packets:
         self.socket.send(packet)
         print("sent ",self.utils.parsebytes(packet))
 
-    def requesteventvolume(self): 
+    def requesteventvolume(self):   
         "Request to 0x31 Register Event for volume change"
-        
+
         seq=self.utils.nextseq()
         packet=self.requestpacket(seq)
         packet+=bytes((AVRCP_CTYPE_NOTIFY,)) 
@@ -84,7 +83,8 @@ class Packets:
         packet+=struct.pack(">H",len(payload)) 
         packet+=payload # PAram len.
         self.socket.send(packet)
-        print("sent request",self.utils.parsebytes(packet))
+        print("sent request event volume",self.utils.parsebytes(packet))
+        print()
     
     def respondsupportedevents(self, seq):
         "Respond to 0x10 GetCapabilities event"
@@ -133,11 +133,10 @@ class Packets:
 class Parse:
     def __init__(self, packets=Packets(socket=None)):
         self.packets = packets
-        self.payback_status = 0x00
 
     def parseevents(self, payload):
         result=""
-        #global playback_status
+        global playback_status
         i=0
         print("payload events recvd: "+self.packets.utils.parsebytes(payload))
         while (i<len(payload)):
@@ -145,7 +144,7 @@ class Parse:
             if (eventid>0):
                 eventval=struct.unpack(">I",payload[i+1:i+5])[0]
                 if eventid==AVRCP_NOTIFICATION_EVENT_PLAYBACK_STATUS_CHANGED:
-                    self.playback_status=payload[i+1] # Playback status is 1 byte
+                    playback_status=payload[i+1] # Playback status is 1 byte
                 result+="Event %02x %s %d " % (eventid,event_ids.get(eventid,"?"),eventval)
             i+=5
         return result                       
@@ -159,7 +158,7 @@ class Parse:
     def parse_avrcp(self, packet):
         "Main handler of avrcp packets"
         
-        #global playback_status
+        global playback_status
         global sequence
         # AVCTP packet header
         ptype,pid=struct.unpack(">BH",packet[0:3])
@@ -187,25 +186,24 @@ class Parse:
             arglen=packet[7]
             print("Operation="+operation_ids[action]+" Arglen="+str(arglen)+" Is Pressed"*pressed)
             if (action==AVRCP_OPERATION_ID_PLAY):
-                self.playback_status=0x01
+                playback_status=0x01
             elif (action==AVRCP_OPERATION_ID_PAUSE):
-                self.playback_status=0x02
+                playback_status=0x02
                 
         elif (packet[4:9]==AVRCP_HEADER): # All AVRCP commands have a PDU of 0x00, followed by the BTSIG_ID as company id
             pdu_ops=packet[9] # Actual AVRCP command
             arglen=struct.unpack(">H",packet[11:13])[0]
             if (arglen>0):
-                payload=payload=packet[13:13+arglen]
+                payload=packet[13:13+arglen]
             else:
                 payload=bytes()
             if (pdu_ops==0x10): # Get Capability.
                 capabilityid=payload[0] # Can be 0x03 (supported events, or 0x02 Get Company IDs supported
                 print("Get capability pdu=%02x capability id=%02x args=%d" % (pdu_ops,capabilityid,arglen))
                 if (capabilityid==3):
-                    print("Eventids supported: "+self.parseeventlist(payload[1:]))
+                    print("Eventids supported: "+self.parseeventlist(payload[2:]))
                     if (cr==0): #Request
                         self.packets.respondsupportedevents(transactionlabel)
-                        self.packets.requesteventvolume()
                         
             elif (pdu_ops==0x31): #Register notification
                 print("Register events: "+self.parseevents(packet))

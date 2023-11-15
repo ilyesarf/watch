@@ -50,11 +50,12 @@ if __name__ == "__main__":
     from proto import avrcp
 
     reader = BT("WATCH8")
-    packets = avrcp.Packets(reader.sock)
-    packets.sendcapabilityreq()
 
-    #packets.requesteventvolume()
+    packets = avrcp.Packets(reader.sock)
     parser = avrcp.Parse(packets=packets)
+
+    packets.sendcapabilityreq()
+    packets.requesteventvolume()
 
     while True:
         print("Waiting on read:")
@@ -65,5 +66,5 @@ if __name__ == "__main__":
 
         print(s)
         parser.parse_avrcp(data)
-        print("Status: Playback=%d\n" % (avrcp.playback_status))
+        print("Status: Playback=%s\n" % ("playing" if avrcp.playback_status==0x01 else "paused"))
      
