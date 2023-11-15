@@ -54,6 +54,7 @@ class Packets:
     def requestpacket(self, seq):
         "Construct AVCTP request header"
         b1=((seq & 0x0f) << 4) | 0x00 # Single packet, request
+        print(b1)
         return struct.pack(">BH",b1,AVRCP_UUID) # AVRCP PID
 
     def respondevent(self, seq,payload):
@@ -66,19 +67,20 @@ class Packets:
         if (payload[0]==AVRCP_NOTIFICATION_EVENT_PLAYBACK_STATUS_CHANGED):
             # 0x00 Stopped, 0x01 Playing 0x02 paused 0x03 fwd_seek 0x04 rev_seek 0xff error
             payload=bytes((AVRCP_NOTIFICATION_EVENT_SYSTEM_STATUS_CHANGED,0x02)) 
-        packet+=struct.pack(">H",len(payload)) # At present just echoing the setting back.
-        packet+=payload
+        packet+=struct.pack(">H",len(payload)) # At present just e  choing the setting back.
+        packet+=bytes((payload[0], 0x7f))
         self.socket.send(packet)
         print("sent ",self.utils.parsebytes(packet))
 
-    def requesteventvolume(self):
-        "Request to be notified of volume changes. Not current working..."
+    def requesteventvolume(self): 
+        "Request to 0x31 Register Event for volume change"
+        
         seq=self.utils.nextseq()
         packet=self.requestpacket(seq)
         packet+=bytes((AVRCP_CTYPE_NOTIFY,)) 
         packet+=AVRCP_HEADER
         packet+=bytes((0x31,0x00)) # 0x31 = Register Event
-        payload=bytes((AVRCP_NOTIFICATION_EVENT_VOLUME_CHANGED,0x7f)) # 0x7f max volume.
+        payload=bytes((AVRCP_NOTIFICATION_EVENT_VOLUME_CHANGED,0x00, 0x00, 0x00, 0x00))
         packet+=struct.pack(">H",len(payload)) 
         packet+=payload # PAram len.
         self.socket.send(packet)
@@ -121,9 +123,9 @@ class Packets:
 
     def sendcapabilityreq(self):
         "Query remote device for event capabilites"
-        seq=self.utils.nextseq()
+        global sequence
         data=bytes((0x03,)) # 0x03 = request events.
-        b=self.constructstatusreq(False,seq,0x10,data) # 0x10 = get capabilities
+        b=self.constructstatusreq(False,sequence,0x10,data) # 0x10 = get capabilities
         print("Writing..."+self.utils.parsebytes(b))
         self.socket.send(b)
 
@@ -137,6 +139,7 @@ class Parse:
         result=""
         #global playback_status
         i=0
+        print("payload events recvd: "+self.packets.utils.parsebytes(payload))
         while (i<len(payload)):
             eventid=payload[i];
             if (eventid>0):
@@ -157,6 +160,7 @@ class Parse:
         "Main handler of avrcp packets"
         
         #global playback_status
+        global sequence
         # AVCTP packet header
         ptype,pid=struct.unpack(">BH",packet[0:3])
         transactionlabel=(ptype >> 4)
@@ -201,9 +205,13 @@ class Parse:
                     print("Eventids supported: "+self.parseeventlist(payload[1:]))
                     if (cr==0): #Request
                         self.packets.respondsupportedevents(transactionlabel)
+                        self.packets.requesteventvolume()
+                        
             elif (pdu_ops==0x31): #Register notification
-                print("Register events: "+self.parseevents(payload))
-                if (ctype==AVRCP_CTYPE_NOTIFY):
+                print("Register events: "+self.parseevents(packet))
+                print(f"ctype: {ctype}")
+                if (ctype==AVRCP_CTYPE_RESPONSE_INTERIM):
+                    print("responding to event")
                     self.packets.respondevent(transactionlabel,payload)
 
 

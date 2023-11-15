@@ -9,7 +9,7 @@ class BT:
             self.device_addr = self.find_device()
             self.save_addr(self.device_addr)
         else:
-            self.device_addr = self.read_addr()
+            self.device_addr = self.read_addr().strip()
         
         self.sock = self.connect_device()
 
@@ -37,7 +37,7 @@ class BT:
     
     def connect_device(self, port=0x0017):
         sock = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_SEQPACKET,socket.BTPROTO_L2CAP)
-        sock.connect((self.device_addr, 0x0017))
+        sock.connect((self.device_addr, port))
         print("yo")
 
         return sock 
@@ -52,6 +52,8 @@ if __name__ == "__main__":
     reader = BT("WATCH8")
     packets = avrcp.Packets(reader.sock)
     packets.sendcapabilityreq()
+
+    #packets.requesteventvolume()
     parser = avrcp.Parse(packets=packets)
 
     while True:
@@ -60,8 +62,8 @@ if __name__ == "__main__":
         s=""
         for b in data:
            s+= ("%02x" % b)+" "
-           
+
         print(s)
         parser.parse_avrcp(data)
-        print("Status: Playback=%d\n" % (avrcp.playback_status)) 
-    
+        print("Status: Playback=%d\n" % (avrcp.playback_status))
+     
