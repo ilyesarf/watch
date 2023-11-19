@@ -102,10 +102,11 @@ class Packets:
         #eventlist=bytes() # By reporting "No events supported", allows simpler passthrough functions.
         data=bytes((0x03,))+eventlist # 0x03 = Event capabilities. 
         b=self.constructstatusreq(True,seq,0x10,data)
+
         print("Respond to capability request "+self.utils.parsebytes(b))
+
         self.socket.send(b)
-        
-                    
+                           
     def constructstatusreq(self,reply,seq,pdu,data):
         if reply:
             b=self.responsepacket(seq)
@@ -113,10 +114,12 @@ class Packets:
         else:
             b=self.requestpacket(seq)
             ctype=AVRCP_CTYPE_STATUS
+
         b+=bytes((ctype,)) # Status,
         b+=AVRCP_HEADER
         b+=struct.pack(">BB",pdu,0x00) # PDU ID, 0x00=reserved
         b+=struct.pack(">H",len(data)) # Param length
+
         if len(data)>0:
             b+=data
         return b
@@ -129,24 +132,43 @@ class Packets:
         print("Writing..."+self.utils.parsebytes(b))
         self.socket.send(b)
 
+    def respondpassthru(self, subunit, action):
+        "Respond to a 0x7c Pass Through notification"
+        seq = self.utils.nextseq()
+        packet=self.responsepacket(seq)
+        packet+=bytes((AVRCP_CTYPE_RESPONSE_ACCEPTED,))
+        packet+=bytes((subunit,))
+        packet+=bytes((0x7c,))
+        packet+=bytes((action, 0x00))
+        
+        print(f"respond to pass thru with: {self.utils.parsebytes(packet)}")
+        self.socket.send(packet)
+
+
 
 class Parse:
     def __init__(self, packets=Packets(socket=None)):
         self.packets = packets
 
     def parseevents(self, payload):
-        result=""
         global playback_status
+        
+        result=""
         i=0
+        
         print("payload events recvd: "+self.packets.utils.parsebytes(payload))
         while (i<len(payload)):
             eventid=payload[i];
+
             if (eventid>0):
                 eventval=struct.unpack(">I",payload[i+1:i+5])[0]
                 if eventid==AVRCP_NOTIFICATION_EVENT_PLAYBACK_STATUS_CHANGED:
                     playback_status=payload[i+1] # Playback status is 1 byte
+
                 result+="Event %02x %s %d " % (eventid,event_ids.get(eventid,"?"),eventval)
+
             i+=5
+
         return result                       
 
     def parseeventlist(self, payload):
@@ -160,36 +182,48 @@ class Parse:
         
         global playback_status
         global sequence
+
         # AVCTP packet header
         ptype,pid=struct.unpack(">BH",packet[0:3])
         transactionlabel=(ptype >> 4)
         packet_type=(ptype >> 2) & 0x03
         cr=(ptype>>1) & 0x01
         ipid=(ptype & 0x01)
+        
         print("Packet: label=%d type=%d c/r=%d ipid=%d %4x" % (transactionlabel,packet_type,cr,ipid,pid))
+        
         try:
             ctype,subunit,pdu = struct.unpack(">BBB",packet[3:6])
         except:
             print("Invalid packet")
             return
+        
         ctype=ctype & 0xf # Command type
         subunit_type = subunit >> 3 # For AVRCP, subunit is always 0x48
         subunit_id = subunit & 0x7;
-        print("Ctype=%02x (%s) pdu=%02x" % (ctype,command_types.get(ctype,"?"),pdu))
+        
+        print("Ctype=%02x (%s) subunit: %02x pdu=%02x" % (ctype,command_types.get(ctype,"?"),subunit,pdu))
+        
         if (pdu==0x7c): # Passthrough is actually an AVCTP command.
             pressed = 1
-            action=packet[6] 
+            print(self.packets.utils.parsebytes(packet))
+            action=packet[6]
+
             if action > 0x4c:
                 action = action^0x80
                 pressed = 0
 
             arglen=packet[7]
             print("Operation="+operation_ids[action]+" Arglen="+str(arglen)+" Is Pressed"*pressed)
+            
             if (action==AVRCP_OPERATION_ID_PLAY):
                 playback_status=0x01
             elif (action==AVRCP_OPERATION_ID_PAUSE):
                 playback_status=0x02
-                
+
+            self.packets.respondpassthru(subunit, packet[6])
+
+
         elif (packet[4:9]==AVRCP_HEADER): # All AVRCP commands have a PDU of 0x00, followed by the BTSIG_ID as company id
             pdu_ops=packet[9] # Actual AVRCP command
             arglen=struct.unpack(">H",packet[11:13])[0]
